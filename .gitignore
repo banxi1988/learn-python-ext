@@ -1,0 +1,16 @@
+*.o
+*.d
+*.gz
+*.mp4
+*.DS_Store
+*.bak
+*.a
+*.so
+tags
+build/
+bin/
+dist/
+*.egg-info
+__pycache__
+*.py[ocw]
+.python-version
