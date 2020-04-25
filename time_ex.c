@@ -88,47 +88,34 @@ PyObject *time_ex_fmt_time(PyObject *self, PyObject *args, PyObject *kwds) {
   return fmtStructTm(format, &tm_buf);
 }
 
-// static PyObject *_time_ex_next_tick_callback = NULL;
-void *c_thread_call_next_tick_callback_periodically(void *callback) {
+static void _next_tick_worker_fun(void *callback) {
   double interval = 1;  // seconds
   for (;;) {
     sleep(interval);
     if (_Py_IsFinalizing()) {
-      printf("the interpreter is finalizing!");
+      printf("[提示]解释器即将销毁!\n");
       break;
     }
-    // PyGILState_STATE state = PyGILState_Ensure();
-    printf("[TICK]. call %p\n", callback);
-    _PyObject_Dump(callback);
-    PyObject_CallFunctionObjArgs(callback, NULL);
-    // PyGILState_Release(state);
+    PyGILState_STATE state = PyGILState_Ensure();
+    printf("[滴答]. 调用 next_tick callback:%p\n", callback);
+    PyObject_CallObject((PyObject *)callback, NULL);
+    PyGILState_Release(state);
   }
-  return NULL;
 }
 
-static PyObject *time_ex_next_tick(PyObject *self, PyObject *args) {
-  PyObject *callback = NULL;
-  if (!PyArg_ParseTuple(args, "O:time_ex_next_tick", &callback)) {
-    return NULL;
-  }
+static PyObject *time_ex_next_tick(PyObject *self, PyObject *callback) {
   if (!PyCallable_Check(callback)) {
     PyErr_SetString(PyExc_TypeError, "参数必须是可调用的");
     return NULL;
   }
-  printf("callback addr:%p\n", callback);
   PyObject_CallObject(callback, NULL);
-  Py_BEGIN_ALLOW_THREADS;
-  pthread_t tid;
-  int ret = 0;
-  ret = pthread_create(&tid, NULL,
-                       c_thread_call_next_tick_callback_periodically, callback);
-  printf("pthread_create ret:%d\n", ret);
-  ret = pthread_join(tid, NULL);
-  printf("pthread_join ret:%d\n", ret);
-  Py_END_ALLOW_THREADS;
-  printf("next tick exists:%p\n", callback);
-  _PyObject_Dump(callback);
-  Py_DECREF(callback);
+  uint64_t tid = PyThread_start_new_thread(_next_tick_worker_fun, callback);
+  if (!tid) {
+    PyErr_SetString(PyExc_TypeError, "创建 next_ticker 线程失败");
+    return NULL;
+  } else {
+    printf("next tick worker created!\n");
+  }
   Py_RETURN_NONE;
 }
 
@@ -158,7 +145,7 @@ static PyMethodDef time_ex_methods[] = {
          "将 struct_time tuple 转成指定格式的时间字符中,参数为 keywords only"},
     {.ml_name = "next_tick",
      .ml_meth = time_ex_next_tick,
-     .ml_flags = METH_VARARGS,
+     .ml_flags = METH_O,
      .ml_doc = "类似 NodeJs 中的 process.nextTick"},
     {NULL, NULL, 0, NULL}, /* Sentinel*/
 };
